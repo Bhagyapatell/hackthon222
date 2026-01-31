@@ -1,9 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { PageHeader } from '@/components/common/PageHeader';
 import { FormActions } from '@/components/common/FormActions';
-import { StatusBadge } from '@/components/common/StatusBadge';
 import { supabase } from '@/integrations/supabase/client';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,11 +17,11 @@ import {
 } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { calculateModelPriority } from '@/services/autoAnalyticalEngine';
-import { AlertCircle, Info, Sparkles } from 'lucide-react';
+import { AlertCircle, Info, Sparkles, Loader2, CheckCircle2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
 import { useAISuggestion } from '@/hooks/useAISuggestion';
-import { AIAnalyticalSuggestion } from '@/components/analytics/AIAnalyticalSuggestion';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { confidenceVariants } from '@/types/aiAnalyticalSuggestion';
 
 interface FormData {
   name: string;
@@ -58,7 +57,7 @@ export default function AutoAnalyticalModelForm() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(!isNew);
-  const [appliedSuggestionId, setAppliedSuggestionId] = useState<string | null>(null);
+  const [aiApplied, setAiApplied] = useState(false);
 
   // Options for select dropdowns
   const [tags, setTags] = useState<SelectOption[]>([]);
@@ -67,7 +66,10 @@ export default function AutoAnalyticalModelForm() {
   const [products, setProducts] = useState<SelectOption[]>([]);
   const [analyticalAccounts, setAnalyticalAccounts] = useState<SelectOption[]>([]);
 
-  // AI Suggestion hook
+  // Track previous input to avoid redundant calls
+  const prevInputRef = useRef<string>('');
+
+  // AI Suggestion hook with auto-apply
   const {
     suggestion,
     isLoading: aiLoading,
@@ -75,24 +77,53 @@ export default function AutoAnalyticalModelForm() {
     getSuggestion,
     clearSuggestion,
   } = useAISuggestion({
-    onApply: (analyticalAccountId) => {
-      handleChange('analyticalAccountId', analyticalAccountId);
-      setAppliedSuggestionId(analyticalAccountId);
-      toast.success('AI suggestion applied!');
+    onSuggestion: (result) => {
+      // Auto-apply AI suggestion for new models
+      if (isNew && result) {
+        setFormData(prev => ({
+          ...prev,
+          name: result.modelName,
+          analyticalAccountId: result.analyticalAccountId,
+        }));
+        setAiApplied(true);
+      }
     },
   });
 
-  // Trigger AI suggestion when rule conditions change
-  const handleGetAISuggestion = useCallback(() => {
-    if (formData.partnerTagId || formData.partnerId || formData.productCategoryId || formData.productId) {
+  // Auto-trigger AI suggestion when rule conditions change (for new models only)
+  useEffect(() => {
+    if (!isNew || formData.isArchived) return;
+
+    const hasInput = formData.partnerTagId || formData.partnerId || formData.productCategoryId || formData.productId;
+    const inputKey = JSON.stringify({
+      partnerTagId: formData.partnerTagId,
+      partnerId: formData.partnerId,
+      productCategoryId: formData.productCategoryId,
+      productId: formData.productId,
+    });
+
+    // Only trigger if input changed and has at least one value
+    if (hasInput && inputKey !== prevInputRef.current) {
+      prevInputRef.current = inputKey;
+      setAiApplied(false);
       getSuggestion({
         partnerTagId: formData.partnerTagId || undefined,
         partnerId: formData.partnerId || undefined,
         productCategoryId: formData.productCategoryId || undefined,
         productId: formData.productId || undefined,
       });
+    } else if (!hasInput) {
+      // Clear if no input
+      prevInputRef.current = '';
+      clearSuggestion();
+      setFormData(prev => ({
+        ...prev,
+        name: '',
+        analyticalAccountId: '',
+      }));
+      setAiApplied(false);
     }
-  }, [formData.partnerTagId, formData.partnerId, formData.productCategoryId, formData.productId, getSuggestion]);
+  }, [isNew, formData.partnerTagId, formData.partnerId, formData.productCategoryId, formData.productId, formData.isArchived, getSuggestion, clearSuggestion]);
 
   // Fetch all lookup data
   useEffect(() => {
@@ -149,10 +180,6 @@ export default function AutoAnalyticalModelForm() {
 
   const handleChange = (field: keyof FormData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
-    // Clear applied suggestion if user changes analytical account manually
-    if (field === 'analyticalAccountId') {
-      setAppliedSuggestionId(null);
-    }
   };
 
   // Calculate specificity for display
@@ -172,11 +199,11 @@ export default function AutoAnalyticalModelForm() {
 
   const validateForm = () => {
     if (!formData.name.trim()) {
-      toast.error('Model name is required');
+      toast.error('Model name is required - please select at least one rule condition');
       return false;
     }
     if (!formData.analyticalAccountId) {
-      toast.error('Analytics to Apply is required');
+      toast.error('Analytics to Apply is required - please select at least one rule condition');
       return false;
     }
     if (priority === 0) {
@@ -261,12 +288,14 @@ export default function AutoAnalyticalModelForm() {
   }
 
   const { label: specificityLabel, variant: specificityVariant } = getSpecificityLabel();
+  const selectedAccount = analyticalAccounts.find(a => a.id === formData.analyticalAccountId);
+  const confidenceInfo = suggestion ? confidenceVariants[suggestion.confidence] : null;
 
   return (
     <MainLayout>
       <PageHeader
         title={isNew ? 'New Auto Analytical Model' : formData.name || 'Auto Analytical Model'}
-        subtitle={isNew ? 'Create automatic analytical distribution rule' : 'View and edit rule configuration'}
+        subtitle={isNew ? 'AI-driven automatic analytical distribution rule' : 'View and edit rule configuration'}
       />
 
       {formData.isArchived && (
@@ -279,112 +308,33 @@ export default function AutoAnalyticalModelForm() {
       )}
 
       <div className="grid gap-6 max-w-4xl">
-        {/* Model Info Card */}
+        {/* Rule Conditions Card - NOW FIRST */}
         <Card>
           <CardHeader>
-            <CardTitle>Model Details</CardTitle>
-            <CardDescription>
-              Define the rule name and the analytical account to apply
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="name">Model Name *</Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => handleChange('name', e.target.value)}
-                  disabled={formData.isArchived}
-                  placeholder="e.g., VIP Customer Deepavali"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="analyticalAccountId">Analytics to Apply *</Label>
-                <Select
-                  value={formData.analyticalAccountId}
-                  onValueChange={(value) => handleChange('analyticalAccountId', value)}
-                  disabled={formData.isArchived}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select analytical account" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {analyticalAccounts.map((acc) => (
-                      <SelectItem key={acc.id} value={acc.id}>
-                        {acc.code} - {acc.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="flex items-center gap-2">
+              <CardTitle>Rule Conditions</CardTitle>
+              {isNew && (
+                <Badge variant="secondary" className="flex items-center gap-1">
+                  <Sparkles className="w-3 h-3" />
+                  AI-Powered
+                </Badge>
+              )}
             </div>
-
-            {/* Specificity Indicator */}
-            <div className="flex items-center gap-2 pt-2">
-              <span className="text-sm text-muted-foreground">Rule Specificity:</span>
-              <Badge variant={specificityVariant}>{specificityLabel}</Badge>
-              <span className="text-sm text-muted-foreground">({priority} field{priority !== 1 ? 's' : ''} configured)</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Rule Conditions Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Rule Conditions</CardTitle>
             <CardDescription>
-              Configure optional matching criteria. At least one field must be selected.
-              More specific rules (more fields) take priority over generic rules.
+              {isNew 
+                ? 'Select the matching criteria. AI will automatically determine the best analytics and generate a model name.'
+                : 'Configure optional matching criteria. At least one field must be selected.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <Alert>
               <Info className="h-4 w-4" />
               <AlertDescription>
-                All selected fields must match for this rule to apply. Empty fields are ignored.
+                {isNew 
+                  ? 'Just select your criteria below - AI will handle the rest! All selected fields must match for the rule to apply.'
+                  : 'All selected fields must match for this rule to apply. Empty fields are ignored.'}
               </AlertDescription>
             </Alert>
-
-            {/* AI Suggestion Button */}
-            {isNew && !formData.isArchived && (
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleGetAISuggestion}
-                  disabled={aiLoading || priority === 0}
-                  className="flex items-center gap-2"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  {aiLoading ? 'Analyzing...' : 'Get AI Suggestion'}
-                </Button>
-                {priority === 0 && (
-                  <span className="text-xs text-muted-foreground">
-                    Select at least one rule condition first
-                  </span>
-                )}
-              </div>
-            )}
-
-            {/* AI Suggestion Display */}
-            {(suggestion || aiLoading || aiError) && (
-              <AIAnalyticalSuggestion
-                suggestion={suggestion}
-                isLoading={aiLoading}
-                error={aiError}
-                onApply={() => {
-                  if (suggestion?.analyticalAccountId) {
-                    handleChange('analyticalAccountId', suggestion.analyticalAccountId);
-                    setAppliedSuggestionId(suggestion.analyticalAccountId);
-                    toast.success('AI suggestion applied!');
-                  }
-                }}
-                onDismiss={clearSuggestion}
-                isApplied={appliedSuggestionId === suggestion?.analyticalAccountId}
-              />
-            )}
 
             <div className="grid gap-4 md:grid-cols-2">
               {/* Partner Tag */}
@@ -481,44 +431,151 @@ export default function AutoAnalyticalModelForm() {
                 </Select>
               </div>
             </div>
+
+            {/* Specificity Indicator */}
+            <div className="flex items-center gap-2 pt-2">
+              <span className="text-sm text-muted-foreground">Rule Specificity:</span>
+              <Badge variant={specificityVariant}>{specificityLabel}</Badge>
+              <span className="text-sm text-muted-foreground">({priority} field{priority !== 1 ? 's' : ''} configured)</span>
+            </div>
           </CardContent>
         </Card>
 
-        {/* Status Card (only for existing models) */}
-        {!isNew && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Status</CardTitle>
-            </CardHeader>
-            <CardContent>
+        {/* AI Generated Model Info Card */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">Current Status:</span>
-                {formData.isArchived ? (
-                  <StatusBadge status="archived" />
-                ) : (
-                  <StatusBadge status="confirmed" />
+                <CardTitle>AI-Generated Configuration</CardTitle>
+                {isNew && aiLoading && (
+                  <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                )}
+                {isNew && aiApplied && suggestion && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Badge variant={confidenceInfo?.variant || 'outline'} className="flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          {confidenceInfo?.label || 'AI Generated'}
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-sm">
+                        <p className="font-medium mb-1">Why this suggestion?</p>
+                        <p className="text-sm">{suggestion.reason}</p>
+                        {suggestion.matchedPatterns.length > 0 && (
+                          <div className="mt-2">
+                            <p className="text-xs text-muted-foreground">Matched patterns:</p>
+                            <ul className="text-xs list-disc list-inside">
+                              {suggestion.matchedPatterns.map((p, i) => (
+                                <li key={i}>{p}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 )}
               </div>
-              {!formData.isArchived && (
-                <p className="text-sm text-muted-foreground mt-2">
-                  This rule is active and will be applied to matching transaction lines.
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        )}
+            </div>
+            <CardDescription>
+              {isNew 
+                ? 'These fields are automatically determined by AI based on your selected criteria above.'
+                : 'The rule name and analytical account assignment.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* AI Error Display */}
+            {aiError && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{aiError}</AlertDescription>
+              </Alert>
+            )}
 
-        {/* Form Actions */}
-        {!formData.isArchived && (
-          <FormActions
-            mode={isNew ? 'create' : 'edit'}
-            onSave={handleSave}
-            onArchive={!isNew ? handleArchive : undefined}
-            isLoading={isLoading}
-            canConfirm={false}
-            canRevise={false}
-          />
-        )}
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="name">
+                  Model Name
+                  {isNew && <span className="text-xs text-muted-foreground ml-2">(AI-Generated)</span>}
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="name"
+                    value={formData.name}
+                    onChange={(e) => handleChange('name', e.target.value)}
+                    disabled={formData.isArchived || (isNew && aiLoading)}
+                    readOnly={isNew && !formData.isArchived}
+                    placeholder={aiLoading ? 'AI is generating...' : 'Select criteria above'}
+                    className={isNew ? 'bg-muted/50' : ''}
+                  />
+                  {isNew && aiLoading && (
+                    <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+                  )}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="analyticalAccountId">
+                  Analytics to Apply
+                  {isNew && <span className="text-xs text-muted-foreground ml-2">(AI-Selected)</span>}
+                </Label>
+                {isNew ? (
+                  <div className="relative">
+                    <Input
+                      id="analyticalAccountDisplay"
+                      value={selectedAccount ? `${selectedAccount.code} - ${selectedAccount.name}` : ''}
+                      readOnly
+                      disabled={formData.isArchived || aiLoading}
+                      placeholder={aiLoading ? 'AI is selecting...' : 'Select criteria above'}
+                      className="bg-muted/50"
+                    />
+                    {aiLoading && (
+                      <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+                    )}
+                  </div>
+                ) : (
+                  <Select
+                    value={formData.analyticalAccountId}
+                    onValueChange={(value) => handleChange('analyticalAccountId', value)}
+                    disabled={formData.isArchived}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select analytical account" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {analyticalAccounts.map((acc) => (
+                        <SelectItem key={acc.id} value={acc.id}>
+                          {acc.code} - {acc.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            </div>
+
+            {/* AI Reasoning Display */}
+            {isNew && suggestion && aiApplied && (
+              <div className="bg-muted/30 rounded-lg p-3 border border-border/50">
+                <p className="text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground">AI Reasoning:</span> {suggestion.reason}
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Actions */}
+        <FormActions
+          mode={isNew ? 'create' : 'edit'}
+          status={formData.isArchived ? 'archived' : 'draft'}
+          isLoading={isLoading || aiLoading}
+          onSave={handleSave}
+          onCancel={() => navigate('/account/auto-analytical-models')}
+          onArchive={!isNew && !formData.isArchived ? handleArchive : undefined}
+          canConfirm={false}
+          canRevise={false}
+        />
       </div>
     </MainLayout>
   );

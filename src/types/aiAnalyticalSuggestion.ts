@@ -20,6 +20,8 @@ export interface AISuggestionInput {
  * AI suggestion result
  */
 export interface AISuggestionResult {
+  /** AI-generated model name */
+  modelName: string;
   analyticalAccountId: string;
   analyticalAccountName: string;
   analyticalAccountCode: string;
