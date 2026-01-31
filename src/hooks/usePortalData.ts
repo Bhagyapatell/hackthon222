@@ -137,7 +137,8 @@ export function usePortalContactId() {
 }
 
 // Hook for portal dashboard stats - NO budgets, only transactional data
-export function usePortalDashboard() {
+// Supports real-time refresh via refreshTrigger
+export function usePortalDashboard(refreshTrigger?: number) {
   const [stats, setStats] = useState<PortalDashboardStats>({
     pendingSalesOrders: 0,
     pendingPurchaseOrders: 0,
@@ -172,7 +173,6 @@ export function usePortalDashboard() {
       if (poError) throw poError;
 
       // Fetch POSTED customer invoices only (not draft, not cancelled)
-      // Posted = status in ('posted', 'partially_paid', 'paid')
       const { data: invoices, error: invError } = await supabase
         .from('customer_invoices')
         .select('id, status, total_amount, paid_amount, is_archived')
@@ -222,7 +222,7 @@ export function usePortalDashboard() {
 
   useEffect(() => {
     fetchStats();
-  }, [fetchStats]);
+  }, [fetchStats, refreshTrigger]);
 
   return { stats, loading, refresh: fetchStats };
 }
@@ -266,7 +266,8 @@ export function usePortalSalesOrders() {
 }
 
 // Hook for portal invoices - ONLY POSTED invoices visible (not draft)
-export function usePortalInvoices() {
+// Supports real-time refresh via refreshTrigger
+export function usePortalInvoices(refreshTrigger?: number) {
   const [invoices, setInvoices] = useState<PortalInvoice[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
@@ -299,7 +300,7 @@ export function usePortalInvoices() {
 
   useEffect(() => {
     fetchInvoices();
-  }, [fetchInvoices]);
+  }, [fetchInvoices, refreshTrigger]);
 
   return { invoices, loading, refresh: fetchInvoices };
 }
@@ -343,7 +344,8 @@ export function usePortalPurchaseOrders() {
 }
 
 // Hook for portal vendor bills - ONLY POSTED bills visible
-export function usePortalVendorBills() {
+// Supports real-time refresh via refreshTrigger
+export function usePortalVendorBills(refreshTrigger?: number) {
   const [bills, setBills] = useState<PortalVendorBill[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
@@ -375,7 +377,7 @@ export function usePortalVendorBills() {
 
   useEffect(() => {
     fetchBills();
-  }, [fetchBills]);
+  }, [fetchBills, refreshTrigger]);
 
   return { bills, loading, refresh: fetchBills };
 }

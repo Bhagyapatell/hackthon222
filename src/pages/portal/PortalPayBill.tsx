@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -8,18 +8,18 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { usePortalBillDetail, generatePaymentNumber } from '@/hooks/usePortalData';
-import { supabase } from '@/integrations/supabase/client';
+import { usePortalBillDetail } from '@/hooks/usePortalData';
+import { processBillPayment, getBillBalance, PaymentMode } from '@/services/paymentService';
+import { usePortalRefresh } from '@/contexts/PortalRefreshContext';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, CreditCard, AlertCircle, CheckCircle } from 'lucide-react';
+import { ArrowLeft, CreditCard, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-
-type PaymentMode = 'cash' | 'bank_transfer' | 'cheque' | 'online';
 
 export default function PortalPayBill() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { bill, loading, refresh } = usePortalBillDetail(id || '');
+  const { triggerRefresh, setLastRefreshType } = usePortalRefresh();
   const { toast } = useToast();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -28,6 +28,10 @@ export default function PortalPayBill() {
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
   const [amount, setAmount] = useState('');
+  
+  // Real-time balance (recalculated from payments)
+  const [currentBalance, setCurrentBalance] = useState<number | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -37,19 +41,33 @@ export default function PortalPayBill() {
     }).format(value);
   };
 
-  const balance = bill ? Number(bill.total_amount) - Number(bill.paid_amount) : 0;
+  // Fetch real-time balance on mount
+  useEffect(() => {
+    async function fetchBalance() {
+      if (!id) return;
+      setBalanceLoading(true);
+      try {
+        const balanceData = await getBillBalance(id);
+        setCurrentBalance(balanceData.balanceDue);
+        if (!amount && balanceData.balanceDue > 0) {
+          setAmount(balanceData.balanceDue.toString());
+        }
+      } catch (error) {
+        console.error('Error fetching balance:', error);
+      } finally {
+        setBalanceLoading(false);
+      }
+    }
+    fetchBalance();
+  }, [id]);
 
-  // Initialize amount with balance
-  if (bill && !amount && balance > 0) {
-    setAmount(balance.toString());
-  }
+  const balance = currentBalance ?? (bill ? Number(bill.total_amount) - Number(bill.paid_amount) : 0);
 
   const handlePayment = async () => {
     if (!bill || !id) return;
 
     const paymentAmount = parseFloat(amount);
 
-    // Validation
     if (isNaN(paymentAmount) || paymentAmount <= 0) {
       toast({
         title: 'Invalid Amount',
@@ -71,54 +89,42 @@ export default function PortalPayBill() {
     setIsSubmitting(true);
 
     try {
-      // Generate payment number
-      const paymentNumber = await generatePaymentNumber('BPAY');
+      const result = await processBillPayment(id, {
+        amount: paymentAmount,
+        mode: paymentMode,
+        reference: reference || undefined,
+        notes: notes || undefined,
+      });
 
-      // Create payment record
-      const { error: paymentError } = await supabase
-        .from('bill_payments')
-        .insert({
-          vendor_bill_id: id,
-          payment_number: paymentNumber,
-          payment_date: new Date().toISOString().split('T')[0],
-          amount: paymentAmount,
-          mode: paymentMode,
-          status: 'completed',
-          reference: reference || null,
-          notes: notes || null,
+      if (!result.success) {
+        toast({
+          title: 'Payment Failed',
+          description: result.error || 'An error occurred while processing the payment.',
+          variant: 'destructive',
         });
-
-      if (paymentError) throw paymentError;
-
-      // Calculate new paid amount and status
-      const newPaidAmount = Number(bill.paid_amount) + paymentAmount;
-      const newStatus = newPaidAmount >= Number(bill.total_amount) ? 'paid' : 'partially_paid';
-
-      // Update bill
-      const { error: updateError } = await supabase
-        .from('vendor_bills')
-        .update({
-          paid_amount: newPaidAmount,
-          status: newStatus,
-        })
-        .eq('id', id);
-
-      if (updateError) throw updateError;
+        return;
+      }
 
       setPaymentSuccess(true);
       toast({
         title: 'Payment Successful',
-        description: `Payment of ${formatCurrency(paymentAmount)} has been recorded`,
+        description: `Payment of ${formatCurrency(paymentAmount)} has been recorded. ${
+          result.newStatus === 'paid' 
+            ? 'Bill is now fully paid.' 
+            : `Remaining balance: ${formatCurrency(result.newBalanceDue || 0)}`
+        }`,
       });
 
-      // Refresh data
+      // Trigger global refresh
+      setLastRefreshType('bill_payment');
+      triggerRefresh();
       refresh();
 
     } catch (error) {
       console.error('Payment error:', error);
       toast({
         title: 'Payment Failed',
-        description: 'An error occurred while processing the payment. Please try again.',
+        description: 'An unexpected error occurred. Please try again.',
         variant: 'destructive',
       });
     } finally {
@@ -126,7 +132,7 @@ export default function PortalPayBill() {
     }
   };
 
-  if (loading) {
+  if (loading || balanceLoading) {
     return (
       <MainLayout>
         <div className="space-y-6 max-w-2xl mx-auto">
@@ -156,9 +162,9 @@ export default function PortalPayBill() {
     return (
       <MainLayout>
         <div className="max-w-2xl mx-auto">
-          <Alert>
-            <CheckCircle className="h-4 w-4" />
-            <AlertTitle>Bill Already Paid</AlertTitle>
+          <Alert className="border-chart-3">
+            <CheckCircle className="h-4 w-4 text-chart-3" />
+            <AlertTitle>Bill Fully Paid</AlertTitle>
             <AlertDescription>
               This bill has been fully paid. No payment is required.
             </AlertDescription>
@@ -183,7 +189,7 @@ export default function PortalPayBill() {
               </div>
               <h2 className="text-2xl font-bold text-foreground mb-2">Payment Successful!</h2>
               <p className="text-muted-foreground text-center mb-6">
-                Your payment has been recorded successfully.
+                Your payment has been recorded and the bill has been updated.
               </p>
               <div className="flex gap-4">
                 <Button variant="outline" onClick={() => navigate('/portal/vendor-bills')}>
@@ -199,6 +205,8 @@ export default function PortalPayBill() {
       </MainLayout>
     );
   }
+
+  const paidAmount = Number(bill.total_amount) - balance;
 
   return (
     <MainLayout>
@@ -218,6 +226,7 @@ export default function PortalPayBill() {
         <Card>
           <CardHeader>
             <CardTitle>Bill Summary</CardTitle>
+            <CardDescription>Values are computed from payment records</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-3 gap-4 text-center">
@@ -226,8 +235,8 @@ export default function PortalPayBill() {
                 <p className="text-lg font-semibold">{formatCurrency(bill.total_amount)}</p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Already Paid</p>
-                <p className="text-lg font-semibold text-chart-3">{formatCurrency(bill.paid_amount)}</p>
+                <p className="text-sm text-muted-foreground">Amount Paid</p>
+                <p className="text-lg font-semibold text-chart-3">{formatCurrency(paidAmount)}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Balance Due</p>
@@ -257,6 +266,7 @@ export default function PortalPayBill() {
                 placeholder="Enter amount"
                 max={balance}
                 min={1}
+                step="0.01"
               />
               <p className="text-sm text-muted-foreground">
                 Maximum payable: {formatCurrency(balance)}
@@ -266,12 +276,12 @@ export default function PortalPayBill() {
             <div className="space-y-2">
               <Label htmlFor="mode">Payment Mode *</Label>
               <Select value={paymentMode} onValueChange={(value: PaymentMode) => setPaymentMode(value)}>
-                <SelectTrigger>
+                <SelectTrigger id="mode">
                   <SelectValue placeholder="Select payment mode" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="online">Online Payment</SelectItem>
-                  <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                  <SelectItem value="online">Online Payment (UPI/Card)</SelectItem>
+                  <SelectItem value="bank_transfer">Bank Transfer (NEFT/RTGS)</SelectItem>
                   <SelectItem value="cheque">Cheque</SelectItem>
                   <SelectItem value="cash">Cash</SelectItem>
                 </SelectContent>
@@ -311,9 +321,16 @@ export default function PortalPayBill() {
               <Button
                 className="flex-1"
                 onClick={handlePayment}
-                disabled={isSubmitting}
+                disabled={isSubmitting || parseFloat(amount) <= 0 || parseFloat(amount) > balance}
               >
-                {isSubmitting ? 'Processing...' : `Pay ${formatCurrency(parseFloat(amount) || 0)}`}
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  `Pay ${formatCurrency(parseFloat(amount) || 0)}`
+                )}
               </Button>
             </div>
           </CardContent>

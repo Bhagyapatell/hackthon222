@@ -5,12 +5,14 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePortalVendorBills } from '@/hooks/usePortalData';
+import { usePortalRefresh } from '@/contexts/PortalRefreshContext';
 import { format } from 'date-fns';
-import { FileText, Calendar, DollarSign, CreditCard } from 'lucide-react';
+import { FileText, Calendar, CreditCard } from 'lucide-react';
 
 export default function PortalVendorBills() {
   const navigate = useNavigate();
-  const { bills, loading } = usePortalVendorBills();
+  const { refreshTrigger } = usePortalRefresh();
+  const { bills, loading } = usePortalVendorBills(refreshTrigger);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -20,29 +22,24 @@ export default function PortalVendorBills() {
     }).format(amount);
   };
 
-  const getStatusVariant = (status: string) => {
-    switch (status) {
-      case 'paid':
-        return 'default';
-      case 'partially_paid':
-        return 'secondary';
-      case 'posted':
-        return 'outline';
-      case 'draft':
-        return 'secondary';
-      case 'cancelled':
-        return 'destructive';
-      default:
-        return 'outline';
-    }
-  };
+  // Compute status badge based on ERP rules
+  const getStatusDisplay = (status: string, totalAmount: number, paidAmount: number) => {
+    const balance = Number(totalAmount) - Number(paidAmount);
+    
+    let computedStatus = status;
+    if (balance <= 0) computedStatus = 'paid';
+    else if (paidAmount > 0) computedStatus = 'partially_paid';
+    else computedStatus = 'posted';
 
-  const getStatusLabel = (status: string) => {
-    switch (status) {
+    switch (computedStatus) {
+      case 'paid':
+        return { variant: 'default' as const, label: 'Paid' };
       case 'partially_paid':
-        return 'Partial';
+        return { variant: 'secondary' as const, label: 'Partial' };
+      case 'posted':
+        return { variant: 'outline' as const, label: 'Posted' };
       default:
-        return status;
+        return { variant: 'outline' as const, label: status };
     }
   };
 
@@ -83,7 +80,8 @@ export default function PortalVendorBills() {
           <div className="space-y-4">
             {bills.map((bill) => {
               const balance = Number(bill.total_amount) - Number(bill.paid_amount);
-              const canPay = balance > 0 && bill.status !== 'cancelled' && bill.status !== 'draft';
+              const canPay = balance > 0;
+              const statusDisplay = getStatusDisplay(bill.status, bill.total_amount, bill.paid_amount);
               
               return (
                 <Card
@@ -96,8 +94,8 @@ export default function PortalVendorBills() {
                       <div className="space-y-2 flex-1">
                         <div className="flex items-center gap-3">
                           <span className="font-semibold text-lg">{bill.bill_number}</span>
-                          <Badge variant={getStatusVariant(bill.status)}>
-                            {getStatusLabel(bill.status)}
+                          <Badge variant={statusDisplay.variant}>
+                            {statusDisplay.label}
                           </Badge>
                         </div>
                         <div className="flex items-center gap-4 text-sm text-muted-foreground">
