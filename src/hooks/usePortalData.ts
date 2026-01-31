@@ -1,0 +1,545 @@
+import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
+
+// Types for portal data
+export interface PortalSalesOrder {
+  id: string;
+  order_number: string;
+  order_date: string;
+  expected_delivery_date: string | null;
+  total_amount: number;
+  status: 'draft' | 'confirmed' | 'cancelled';
+  notes: string | null;
+  is_archived: boolean;
+  created_at: string;
+}
+
+export interface PortalInvoice {
+  id: string;
+  invoice_number: string;
+  invoice_date: string;
+  due_date: string;
+  total_amount: number;
+  paid_amount: number;
+  status: 'draft' | 'posted' | 'paid' | 'partially_paid' | 'cancelled';
+  notes: string | null;
+  is_archived: boolean;
+  created_at: string;
+  sales_order_id: string | null;
+}
+
+export interface PortalPurchaseOrder {
+  id: string;
+  order_number: string;
+  order_date: string;
+  expected_delivery_date: string | null;
+  total_amount: number;
+  status: 'draft' | 'confirmed' | 'cancelled';
+  notes: string | null;
+  is_archived: boolean;
+  created_at: string;
+}
+
+export interface PortalVendorBill {
+  id: string;
+  bill_number: string;
+  bill_date: string;
+  due_date: string;
+  total_amount: number;
+  paid_amount: number;
+  status: 'draft' | 'posted' | 'paid' | 'partially_paid' | 'cancelled';
+  notes: string | null;
+  is_archived: boolean;
+  created_at: string;
+  purchase_order_id: string | null;
+}
+
+export interface PortalInvoiceLine {
+  id: string;
+  product_id: string;
+  product_name?: string;
+  quantity: number;
+  unit_price: number;
+  subtotal: number;
+}
+
+export interface PortalBillLine {
+  id: string;
+  product_id: string;
+  product_name?: string;
+  quantity: number;
+  unit_price: number;
+  subtotal: number;
+}
+
+export interface PortalPayment {
+  id: string;
+  payment_number: string;
+  payment_date: string;
+  amount: number;
+  mode: 'cash' | 'bank_transfer' | 'cheque' | 'online';
+  status: 'pending' | 'completed' | 'failed';
+  reference: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface PortalDashboardStats {
+  totalBudgetedIncome: number;
+  totalBudgetedExpense: number;
+  pendingSalesOrders: number;
+  pendingPurchaseOrders: number;
+  unpaidInvoices: number;
+  unpaidBills: number;
+  unpaidInvoiceAmount: number;
+  unpaidBillAmount: number;
+}
+
+// Hook for portal user's contact ID
+export function usePortalContactId() {
+  const { user } = useAuth();
+  const [contactId, setContactId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchContactId() {
+      if (!user?.id) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('portal_contact_id')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        if (error) {
+          console.error('Error fetching portal contact ID:', error);
+        } else {
+          setContactId(data?.portal_contact_id || null);
+        }
+      } catch (err) {
+        console.error('Error:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchContactId();
+  }, [user?.id]);
+
+  return { contactId, loading };
+}
+
+// Hook for portal dashboard stats
+export function usePortalDashboard() {
+  const [stats, setStats] = useState<PortalDashboardStats>({
+    totalBudgetedIncome: 0,
+    totalBudgetedExpense: 0,
+    pendingSalesOrders: 0,
+    pendingPurchaseOrders: 0,
+    unpaidInvoices: 0,
+    unpaidBills: 0,
+    unpaidInvoiceAmount: 0,
+    unpaidBillAmount: 0,
+  });
+  const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
+
+  const fetchStats = useCallback(async () => {
+    try {
+      // Fetch sales orders
+      const { data: salesOrders, error: soError } = await supabase
+        .from('sales_orders')
+        .select('id, status, is_archived')
+        .eq('is_archived', false);
+
+      if (soError) throw soError;
+
+      // Fetch purchase orders
+      const { data: purchaseOrders, error: poError } = await supabase
+        .from('purchase_orders')
+        .select('id, status, is_archived')
+        .eq('is_archived', false);
+
+      if (poError) throw poError;
+
+      // Fetch customer invoices
+      const { data: invoices, error: invError } = await supabase
+        .from('customer_invoices')
+        .select('id, status, total_amount, paid_amount, is_archived')
+        .eq('is_archived', false);
+
+      if (invError) throw invError;
+
+      // Fetch vendor bills
+      const { data: bills, error: billError } = await supabase
+        .from('vendor_bills')
+        .select('id, status, total_amount, paid_amount, is_archived')
+        .eq('is_archived', false);
+
+      if (billError) throw billError;
+
+      // Fetch budgets for aggregate
+      const { data: budgets, error: budgetError } = await supabase
+        .from('budgets')
+        .select('type, budgeted_amount, state, is_archived')
+        .eq('state', 'confirmed')
+        .eq('is_archived', false);
+
+      if (budgetError) throw budgetError;
+
+      const pendingSO = salesOrders?.filter(o => o.status === 'draft' || o.status === 'confirmed').length || 0;
+      const pendingPO = purchaseOrders?.filter(o => o.status === 'draft' || o.status === 'confirmed').length || 0;
+      
+      const unpaidInvs = invoices?.filter(i => i.status !== 'paid' && i.status !== 'cancelled') || [];
+      const unpaidBlls = bills?.filter(b => b.status !== 'paid' && b.status !== 'cancelled') || [];
+
+      const incomeBudgets = budgets?.filter(b => b.type === 'income') || [];
+      const expenseBudgets = budgets?.filter(b => b.type === 'expense') || [];
+
+      setStats({
+        totalBudgetedIncome: incomeBudgets.reduce((sum, b) => sum + Number(b.budgeted_amount), 0),
+        totalBudgetedExpense: expenseBudgets.reduce((sum, b) => sum + Number(b.budgeted_amount), 0),
+        pendingSalesOrders: pendingSO,
+        pendingPurchaseOrders: pendingPO,
+        unpaidInvoices: unpaidInvs.length,
+        unpaidBills: unpaidBlls.length,
+        unpaidInvoiceAmount: unpaidInvs.reduce((sum, i) => sum + (Number(i.total_amount) - Number(i.paid_amount)), 0),
+        unpaidBillAmount: unpaidBlls.reduce((sum, b) => sum + (Number(b.total_amount) - Number(b.paid_amount)), 0),
+      });
+    } catch (error) {
+      console.error('Error fetching portal stats:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load dashboard data',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
+
+  return { stats, loading, refresh: fetchStats };
+}
+
+// Hook for portal sales orders
+export function usePortalSalesOrders() {
+  const [orders, setOrders] = useState<PortalSalesOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
+
+  const fetchOrders = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('sales_orders')
+        .select('*')
+        .eq('is_archived', false)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setOrders(data || []);
+    } catch (error) {
+      console.error('Error fetching sales orders:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load sales orders',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    fetchOrders();
+  }, [fetchOrders]);
+
+  return { orders, loading, refresh: fetchOrders };
+}
+
+// Hook for portal invoices
+export function usePortalInvoices() {
+  const [invoices, setInvoices] = useState<PortalInvoice[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
+
+  const fetchInvoices = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('customer_invoices')
+        .select('*')
+        .eq('is_archived', false)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setInvoices(data || []);
+    } catch (error) {
+      console.error('Error fetching invoices:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load invoices',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    fetchInvoices();
+  }, [fetchInvoices]);
+
+  return { invoices, loading, refresh: fetchInvoices };
+}
+
+// Hook for portal purchase orders (for vendors)
+export function usePortalPurchaseOrders() {
+  const [orders, setOrders] = useState<PortalPurchaseOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
+
+  const fetchOrders = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('purchase_orders')
+        .select('*')
+        .eq('is_archived', false)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setOrders(data || []);
+    } catch (error) {
+      console.error('Error fetching purchase orders:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load purchase orders',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    fetchOrders();
+  }, [fetchOrders]);
+
+  return { orders, loading, refresh: fetchOrders };
+}
+
+// Hook for portal vendor bills
+export function usePortalVendorBills() {
+  const [bills, setBills] = useState<PortalVendorBill[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
+
+  const fetchBills = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('vendor_bills')
+        .select('*')
+        .eq('is_archived', false)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setBills(data || []);
+    } catch (error) {
+      console.error('Error fetching vendor bills:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load vendor bills',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    fetchBills();
+  }, [fetchBills]);
+
+  return { bills, loading, refresh: fetchBills };
+}
+
+// Hook for invoice detail with lines
+export function usePortalInvoiceDetail(invoiceId: string) {
+  const [invoice, setInvoice] = useState<PortalInvoice | null>(null);
+  const [lines, setLines] = useState<PortalInvoiceLine[]>([]);
+  const [payments, setPayments] = useState<PortalPayment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
+
+  const fetchDetail = useCallback(async () => {
+    if (!invoiceId) return;
+    setLoading(true);
+    try {
+      // Fetch invoice
+      const { data: invoiceData, error: invoiceError } = await supabase
+        .from('customer_invoices')
+        .select('*')
+        .eq('id', invoiceId)
+        .maybeSingle();
+
+      if (invoiceError) throw invoiceError;
+      setInvoice(invoiceData);
+
+      // Fetch lines with products
+      const { data: linesData, error: linesError } = await supabase
+        .from('customer_invoice_lines')
+        .select(`
+          id,
+          product_id,
+          quantity,
+          unit_price,
+          subtotal,
+          products:product_id (name)
+        `)
+        .eq('customer_invoice_id', invoiceId);
+
+      if (linesError) throw linesError;
+      setLines(linesData?.map(line => ({
+        id: line.id,
+        product_id: line.product_id,
+        product_name: (line.products as any)?.name || 'Unknown Product',
+        quantity: Number(line.quantity),
+        unit_price: Number(line.unit_price),
+        subtotal: Number(line.subtotal),
+      })) || []);
+
+      // Fetch payments
+      const { data: paymentsData, error: paymentsError } = await supabase
+        .from('invoice_payments')
+        .select('*')
+        .eq('customer_invoice_id', invoiceId)
+        .order('payment_date', { ascending: false });
+
+      if (paymentsError) throw paymentsError;
+      setPayments(paymentsData || []);
+    } catch (error) {
+      console.error('Error fetching invoice detail:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load invoice details',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [invoiceId, toast]);
+
+  useEffect(() => {
+    fetchDetail();
+  }, [fetchDetail]);
+
+  return { invoice, lines, payments, loading, refresh: fetchDetail };
+}
+
+// Hook for vendor bill detail with lines
+export function usePortalBillDetail(billId: string) {
+  const [bill, setBill] = useState<PortalVendorBill | null>(null);
+  const [lines, setLines] = useState<PortalBillLine[]>([]);
+  const [payments, setPayments] = useState<PortalPayment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
+
+  const fetchDetail = useCallback(async () => {
+    if (!billId) return;
+    setLoading(true);
+    try {
+      // Fetch bill
+      const { data: billData, error: billError } = await supabase
+        .from('vendor_bills')
+        .select('*')
+        .eq('id', billId)
+        .maybeSingle();
+
+      if (billError) throw billError;
+      setBill(billData);
+
+      // Fetch lines with products
+      const { data: linesData, error: linesError } = await supabase
+        .from('vendor_bill_lines')
+        .select(`
+          id,
+          product_id,
+          quantity,
+          unit_price,
+          subtotal,
+          products:product_id (name)
+        `)
+        .eq('vendor_bill_id', billId);
+
+      if (linesError) throw linesError;
+      setLines(linesData?.map(line => ({
+        id: line.id,
+        product_id: line.product_id,
+        product_name: (line.products as any)?.name || 'Unknown Product',
+        quantity: Number(line.quantity),
+        unit_price: Number(line.unit_price),
+        subtotal: Number(line.subtotal),
+      })) || []);
+
+      // Fetch payments
+      const { data: paymentsData, error: paymentsError } = await supabase
+        .from('bill_payments')
+        .select('*')
+        .eq('vendor_bill_id', billId)
+        .order('payment_date', { ascending: false });
+
+      if (paymentsError) throw paymentsError;
+      setPayments(paymentsData || []);
+    } catch (error) {
+      console.error('Error fetching bill detail:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load bill details',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [billId, toast]);
+
+  useEffect(() => {
+    fetchDetail();
+  }, [fetchDetail]);
+
+  return { bill, lines, payments, loading, refresh: fetchDetail };
+}
+
+// Generate next payment number
+export async function generatePaymentNumber(prefix: 'PAY' | 'BPAY'): Promise<string> {
+  const date = new Date();
+  const year = date.getFullYear().toString().slice(-2);
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  
+  // Get count from appropriate table
+  let count = 1;
+  if (prefix === 'PAY') {
+    const { count: invoicePaymentCount } = await supabase
+      .from('invoice_payments')
+      .select('*', { count: 'exact', head: true });
+    count = (invoicePaymentCount || 0) + 1;
+  } else {
+    const { count: billPaymentCount } = await supabase
+      .from('bill_payments')
+      .select('*', { count: 'exact', head: true });
+    count = (billPaymentCount || 0) + 1;
+  }
+  
+  return `${prefix}-${year}${month}-${count.toString().padStart(4, '0')}`;
+}

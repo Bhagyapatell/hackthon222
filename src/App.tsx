@@ -20,6 +20,20 @@ import BudgetList from "./pages/account/BudgetList";
 import BudgetForm from "./pages/account/BudgetForm";
 import NotFound from "./pages/NotFound";
 
+// Portal Pages
+import {
+  PortalDashboard,
+  PortalSalesOrders,
+  PortalSalesOrderDetail,
+  PortalInvoices,
+  PortalInvoiceDetail,
+  PortalPayInvoice,
+  PortalPurchaseOrders,
+  PortalVendorBills,
+  PortalBillDetail,
+  PortalPayBill,
+} from "./pages/portal";
+
 const queryClient = new QueryClient();
 
 function ProtectedRoute({ children, adminOnly = false }: { children: React.ReactNode; adminOnly?: boolean }) {
@@ -41,14 +55,14 @@ function ProtectedRoute({ children, adminOnly = false }: { children: React.React
   }
 
   if (adminOnly && !isAdmin) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/portal/dashboard" replace />;
   }
 
   return <>{children}</>;
 }
 
-function AppRoutes() {
-  const { isAuthenticated, isLoading } = useAuth();
+function PortalRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isAdmin, isLoading } = useAuth();
 
   if (isLoading) {
     return (
@@ -61,16 +75,46 @@ function AppRoutes() {
     );
   }
 
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // Portal users go to portal routes, admins can also access
+  return <>{children}</>;
+}
+
+function AppRoutes() {
+  const { isAuthenticated, isAdmin, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="text-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Determine where to redirect based on role
+  const getDefaultRoute = () => {
+    if (!isAuthenticated) return "/login";
+    return isAdmin ? "/dashboard" : "/portal/dashboard";
+  };
+
   return (
     <Routes>
       {/* Auth Routes */}
-      <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" /> : <Login />} />
-      <Route path="/signup" element={isAuthenticated ? <Navigate to="/dashboard" /> : <Signup />} />
+      <Route path="/login" element={isAuthenticated ? <Navigate to={getDefaultRoute()} /> : <Login />} />
+      <Route path="/signup" element={isAuthenticated ? <Navigate to={getDefaultRoute()} /> : <Signup />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
 
-      {/* Dashboard */}
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      {/* Root redirect based on role */}
+      <Route path="/" element={<Navigate to={getDefaultRoute()} replace />} />
+
+      {/* Admin Dashboard */}
+      <Route path="/dashboard" element={<ProtectedRoute adminOnly><Dashboard /></ProtectedRoute>} />
 
       {/* Account Module - Admin Only */}
       <Route path="/account/contacts" element={<ProtectedRoute adminOnly><ContactList /></ProtectedRoute>} />
@@ -82,15 +126,28 @@ function AppRoutes() {
       <Route path="/account/budgets" element={<ProtectedRoute adminOnly><BudgetList /></ProtectedRoute>} />
       <Route path="/account/budgets/:id" element={<ProtectedRoute adminOnly><BudgetForm /></ProtectedRoute>} />
 
-      {/* Purchase Module */}
-      <Route path="/purchase/orders" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/purchase/bills" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/purchase/payments" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      {/* Purchase Module - Admin Only */}
+      <Route path="/purchase/orders" element={<ProtectedRoute adminOnly><Dashboard /></ProtectedRoute>} />
+      <Route path="/purchase/bills" element={<ProtectedRoute adminOnly><Dashboard /></ProtectedRoute>} />
+      <Route path="/purchase/payments" element={<ProtectedRoute adminOnly><Dashboard /></ProtectedRoute>} />
 
-      {/* Sale Module */}
-      <Route path="/sale/orders" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/sale/invoices" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/sale/payments" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      {/* Sale Module - Admin Only */}
+      <Route path="/sale/orders" element={<ProtectedRoute adminOnly><Dashboard /></ProtectedRoute>} />
+      <Route path="/sale/invoices" element={<ProtectedRoute adminOnly><Dashboard /></ProtectedRoute>} />
+      <Route path="/sale/payments" element={<ProtectedRoute adminOnly><Dashboard /></ProtectedRoute>} />
+
+      {/* Portal Routes */}
+      <Route path="/portal/dashboard" element={<PortalRoute><PortalDashboard /></PortalRoute>} />
+      <Route path="/portal/sales-orders" element={<PortalRoute><PortalSalesOrders /></PortalRoute>} />
+      <Route path="/portal/sales-orders/:id" element={<PortalRoute><PortalSalesOrderDetail /></PortalRoute>} />
+      <Route path="/portal/invoices" element={<PortalRoute><PortalInvoices /></PortalRoute>} />
+      <Route path="/portal/invoices/:id" element={<PortalRoute><PortalInvoiceDetail /></PortalRoute>} />
+      <Route path="/portal/invoices/:id/pay" element={<PortalRoute><PortalPayInvoice /></PortalRoute>} />
+      <Route path="/portal/purchase-orders" element={<PortalRoute><PortalPurchaseOrders /></PortalRoute>} />
+      <Route path="/portal/purchase-orders/:id" element={<PortalRoute><PortalPurchaseOrders /></PortalRoute>} />
+      <Route path="/portal/vendor-bills" element={<PortalRoute><PortalVendorBills /></PortalRoute>} />
+      <Route path="/portal/vendor-bills/:id" element={<PortalRoute><PortalBillDetail /></PortalRoute>} />
+      <Route path="/portal/vendor-bills/:id/pay" element={<PortalRoute><PortalPayBill /></PortalRoute>} />
 
       {/* Catch-all */}
       <Route path="*" element={<NotFound />} />
