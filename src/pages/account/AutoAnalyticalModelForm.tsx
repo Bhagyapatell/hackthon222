@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -18,8 +18,11 @@ import {
 } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { calculateModelPriority } from '@/services/autoAnalyticalEngine';
-import { AlertCircle, Info } from 'lucide-react';
+import { AlertCircle, Info, Sparkles } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { useAISuggestion } from '@/hooks/useAISuggestion';
+import { AIAnalyticalSuggestion } from '@/components/analytics/AIAnalyticalSuggestion';
 
 interface FormData {
   name: string;
@@ -55,6 +58,7 @@ export default function AutoAnalyticalModelForm() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(!isNew);
+  const [appliedSuggestionId, setAppliedSuggestionId] = useState<string | null>(null);
 
   // Options for select dropdowns
   const [tags, setTags] = useState<SelectOption[]>([]);
@@ -62,6 +66,33 @@ export default function AutoAnalyticalModelForm() {
   const [categories, setCategories] = useState<SelectOption[]>([]);
   const [products, setProducts] = useState<SelectOption[]>([]);
   const [analyticalAccounts, setAnalyticalAccounts] = useState<SelectOption[]>([]);
+
+  // AI Suggestion hook
+  const {
+    suggestion,
+    isLoading: aiLoading,
+    error: aiError,
+    getSuggestion,
+    clearSuggestion,
+  } = useAISuggestion({
+    onApply: (analyticalAccountId) => {
+      handleChange('analyticalAccountId', analyticalAccountId);
+      setAppliedSuggestionId(analyticalAccountId);
+      toast.success('AI suggestion applied!');
+    },
+  });
+
+  // Trigger AI suggestion when rule conditions change
+  const handleGetAISuggestion = useCallback(() => {
+    if (formData.partnerTagId || formData.partnerId || formData.productCategoryId || formData.productId) {
+      getSuggestion({
+        partnerTagId: formData.partnerTagId || undefined,
+        partnerId: formData.partnerId || undefined,
+        productCategoryId: formData.productCategoryId || undefined,
+        productId: formData.productId || undefined,
+      });
+    }
+  }, [formData.partnerTagId, formData.partnerId, formData.productCategoryId, formData.productId, getSuggestion]);
 
   // Fetch all lookup data
   useEffect(() => {
@@ -118,6 +149,10 @@ export default function AutoAnalyticalModelForm() {
 
   const handleChange = (field: keyof FormData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
+    // Clear applied suggestion if user changes analytical account manually
+    if (field === 'analyticalAccountId') {
+      setAppliedSuggestionId(null);
+    }
   };
 
   // Calculate specificity for display
@@ -310,6 +345,46 @@ export default function AutoAnalyticalModelForm() {
                 All selected fields must match for this rule to apply. Empty fields are ignored.
               </AlertDescription>
             </Alert>
+
+            {/* AI Suggestion Button */}
+            {isNew && !formData.isArchived && (
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleGetAISuggestion}
+                  disabled={aiLoading || priority === 0}
+                  className="flex items-center gap-2"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  {aiLoading ? 'Analyzing...' : 'Get AI Suggestion'}
+                </Button>
+                {priority === 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    Select at least one rule condition first
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* AI Suggestion Display */}
+            {(suggestion || aiLoading || aiError) && (
+              <AIAnalyticalSuggestion
+                suggestion={suggestion}
+                isLoading={aiLoading}
+                error={aiError}
+                onApply={() => {
+                  if (suggestion?.analyticalAccountId) {
+                    handleChange('analyticalAccountId', suggestion.analyticalAccountId);
+                    setAppliedSuggestionId(suggestion.analyticalAccountId);
+                    toast.success('AI suggestion applied!');
+                  }
+                }}
+                onDismiss={clearSuggestion}
+                isApplied={appliedSuggestionId === suggestion?.analyticalAccountId}
+              />
+            )}
 
             <div className="grid gap-4 md:grid-cols-2">
               {/* Partner Tag */}
