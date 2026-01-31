@@ -16,6 +16,8 @@ import ProductList from "./pages/account/ProductList";
 import ProductForm from "./pages/account/ProductForm";
 import AnalyticalAccountList from "./pages/account/AnalyticalAccountList";
 import AnalyticalAccountForm from "./pages/account/AnalyticalAccountForm";
+import AutoAnalyticalModelList from "./pages/account/AutoAnalyticalModelList";
+import AutoAnalyticalModelForm from "./pages/account/AutoAnalyticalModelForm";
 import BudgetList from "./pages/account/BudgetList";
 import BudgetForm from "./pages/account/BudgetForm";
 import NotFound from "./pages/NotFound";
@@ -123,6 +125,8 @@ function AppRoutes() {
       <Route path="/account/products/:id" element={<ProtectedRoute adminOnly><ProductForm /></ProtectedRoute>} />
       <Route path="/account/analytical-accounts" element={<ProtectedRoute adminOnly><AnalyticalAccountList /></ProtectedRoute>} />
       <Route path="/account/analytical-accounts/:id" element={<ProtectedRoute adminOnly><AnalyticalAccountForm /></ProtectedRoute>} />
+      <Route path="/account/auto-analytical-models" element={<ProtectedRoute adminOnly><AutoAnalyticalModelList /></ProtectedRoute>} />
+      <Route path="/account/auto-analytical-models/:id" element={<ProtectedRoute adminOnly><AutoAnalyticalModelForm /></ProtectedRoute>} />
       <Route path="/account/budgets" element={<ProtectedRoute adminOnly><BudgetList /></ProtectedRoute>} />
       <Route path="/account/budgets/:id" element={<ProtectedRoute adminOnly><BudgetForm /></ProtectedRoute>} />
 
