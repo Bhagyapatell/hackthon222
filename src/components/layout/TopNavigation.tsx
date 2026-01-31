@@ -47,6 +47,7 @@ const adminNavItems: NavItem[] = [
     children: [
       { label: 'Contacts', path: '/account/contacts' },
       { label: 'Products', path: '/account/products' },
+      { label: 'Portal Users', path: '/account/portal-users' },
       { label: 'Analytical Accounts', path: '/account/analytical-accounts' },
       { label: 'Auto Analytical Models', path: '/account/auto-analytical-models' },
       { label: 'Budgets', path: '/account/budgets' },

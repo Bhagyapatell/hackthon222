@@ -20,6 +20,8 @@ import AutoAnalyticalModelList from "./pages/account/AutoAnalyticalModelList";
 import AutoAnalyticalModelForm from "./pages/account/AutoAnalyticalModelForm";
 import BudgetList from "./pages/account/BudgetList";
 import BudgetForm from "./pages/account/BudgetForm";
+import PortalUserList from "./pages/account/PortalUserList";
+import PortalUserDetail from "./pages/account/PortalUserDetail";
 import NotFound from "./pages/NotFound";
 
 // Portal Pages
@@ -129,6 +131,8 @@ function AppRoutes() {
       <Route path="/account/auto-analytical-models/:id" element={<ProtectedRoute adminOnly><AutoAnalyticalModelForm /></ProtectedRoute>} />
       <Route path="/account/budgets" element={<ProtectedRoute adminOnly><BudgetList /></ProtectedRoute>} />
       <Route path="/account/budgets/:id" element={<ProtectedRoute adminOnly><BudgetForm /></ProtectedRoute>} />
+      <Route path="/account/portal-users" element={<ProtectedRoute adminOnly><PortalUserList /></ProtectedRoute>} />
+      <Route path="/account/portal-users/:id" element={<ProtectedRoute adminOnly><PortalUserDetail /></ProtectedRoute>} />
 
       {/* Purchase Module - Admin Only */}
       <Route path="/purchase/orders" element={<ProtectedRoute adminOnly><Dashboard /></ProtectedRoute>} />
