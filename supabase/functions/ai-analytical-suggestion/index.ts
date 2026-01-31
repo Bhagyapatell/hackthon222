@@ -47,7 +47,6 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    // Create Supabase client
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     // Fetch all active analytical accounts
@@ -97,7 +96,6 @@ serve(async (req) => {
     if (productId) {
       const { data } = await supabase.from("products").select("name, category_id").eq("id", productId).single();
       productName = data?.name || null;
-      // If no category provided but product has one, use it
       if (!productCategoryId && data?.category_id) {
         const { data: catData } = await supabase.from("product_categories").select("name").eq("id", data.category_id).single();
         productCategoryName = catData?.name || null;
@@ -147,7 +145,9 @@ serve(async (req) => {
 
     const systemPrompt = `You are an ERP analytical account recommendation engine for BudgetWise ERP.
 
-Your task is to suggest the BEST analytical account for a transaction based on the provided context.
+Your task is to:
+1. Suggest the BEST analytical account for a transaction based on the provided context
+2. Generate a clear, meaningful MODEL NAME that describes the rule
 
 AVAILABLE ANALYTICAL ACCOUNTS:
 ${accountsList}
@@ -155,20 +155,28 @@ ${accountsList}
 EXISTING AUTO ANALYTICAL MODELS (for pattern reference):
 ${modelPatterns.length > 0 ? JSON.stringify(modelPatterns, null, 2) : "No existing models"}
 
-DECISION CRITERIA (in order of priority):
+ANALYTICAL ACCOUNT SELECTION CRITERIA (in order of priority):
 1. Exact pattern match with existing models
 2. Similar patterns in existing models
 3. Semantic relevance of account name/description to the context
 4. Most generic appropriate account as fallback
+
+MODEL NAME GENERATION RULES:
+- Name must be human-readable and meaningful
+- Name must reflect WHY the analytics are applied
+- Combine context elements logically (e.g., "VIP Customer - Wooden Furniture")
+- Maximum 50 characters
+- No generic names like "Auto Rule 1" or "Model 123"
+- Use format: "[Context Element] - [Purpose/Category]"
 
 CONFIDENCE LEVELS:
 - "high": Exact or near-exact match with existing patterns, or very clear semantic match
 - "medium": Partial pattern match or reasonable semantic inference
 - "low": Weak match or fallback suggestion
 
-You MUST respond with a valid JSON object using the suggest_analytical_account function.`;
+You MUST respond with a valid JSON object using the generate_analytical_model function.`;
 
-    const userPrompt = `Suggest the best analytical account for a transaction with:
+    const userPrompt = `Generate the best analytical account AND model name for a rule with:
 ${filledFields.join("\n")}
 
 Analyze the context and return your recommendation.`;
@@ -190,11 +198,15 @@ Analyze the context and return your recommendation.`;
           {
             type: "function",
             function: {
-              name: "suggest_analytical_account",
-              description: "Return the suggested analytical account with confidence and reasoning",
+              name: "generate_analytical_model",
+              description: "Return the suggested analytical account and auto-generated model name",
               parameters: {
                 type: "object",
                 properties: {
+                  modelName: {
+                    type: "string",
+                    description: "A clear, meaningful model name (max 50 chars) that describes the rule purpose",
+                  },
                   analyticalAccountId: {
                     type: "string",
                     description: "The UUID of the recommended analytical account",
@@ -222,13 +234,13 @@ Analyze the context and return your recommendation.`;
                     description: "List of patterns or factors that influenced the suggestion",
                   },
                 },
-                required: ["analyticalAccountId", "analyticalAccountName", "analyticalAccountCode", "confidence", "reason", "matchedPatterns"],
+                required: ["modelName", "analyticalAccountId", "analyticalAccountName", "analyticalAccountCode", "confidence", "reason", "matchedPatterns"],
                 additionalProperties: false,
               },
             },
           },
         ],
-        tool_choice: { type: "function", function: { name: "suggest_analytical_account" } },
+        tool_choice: { type: "function", function: { name: "generate_analytical_model" } },
       }),
     });
 
@@ -260,7 +272,7 @@ Analyze the context and return your recommendation.`;
     
     // Extract the tool call result
     const toolCall = aiResponse.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall || toolCall.function.name !== "suggest_analytical_account") {
+    if (!toolCall || toolCall.function.name !== "generate_analytical_model") {
       throw new Error("Invalid AI response format");
     }
 
@@ -288,14 +300,21 @@ Analyze the context and return your recommendation.`;
       }
     }
 
+    // Ensure model name is not too long
+    if (suggestion.modelName && suggestion.modelName.length > 50) {
+      suggestion.modelName = suggestion.modelName.substring(0, 47) + "...";
+    }
+
     console.log("[AI Analytical Suggestion] Result:", {
       input: inputContext,
+      modelName: suggestion.modelName,
       suggestion: suggestion.analyticalAccountName,
       confidence: suggestion.confidence,
     });
 
     return new Response(JSON.stringify({
       suggestion: {
+        modelName: suggestion.modelName,
         analyticalAccountId: suggestion.analyticalAccountId,
         analyticalAccountName: suggestion.analyticalAccountName,
         analyticalAccountCode: suggestion.analyticalAccountCode,
