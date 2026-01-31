@@ -24,6 +24,12 @@ import PortalUserList from "./pages/account/PortalUserList";
 import PortalUserDetail from "./pages/account/PortalUserDetail";
 import NotFound from "./pages/NotFound";
 
+// Sale Pages
+import { SalesOrderList, SalesOrderDetail, CustomerInvoiceList, CustomerInvoiceDetail, InvoicePaymentList } from "./pages/sale";
+
+// Purchase Pages
+import { PurchaseOrderList, PurchaseOrderDetail, VendorBillList, VendorBillDetail, BillPaymentList } from "./pages/purchase";
+
 // Portal Pages
 import {
   PortalDashboard,
@@ -135,14 +141,18 @@ function AppRoutes() {
       <Route path="/account/portal-users/:id" element={<ProtectedRoute adminOnly><PortalUserDetail /></ProtectedRoute>} />
 
       {/* Purchase Module - Admin Only */}
-      <Route path="/purchase/orders" element={<ProtectedRoute adminOnly><Dashboard /></ProtectedRoute>} />
-      <Route path="/purchase/bills" element={<ProtectedRoute adminOnly><Dashboard /></ProtectedRoute>} />
-      <Route path="/purchase/payments" element={<ProtectedRoute adminOnly><Dashboard /></ProtectedRoute>} />
+      <Route path="/purchase/orders" element={<ProtectedRoute adminOnly><PurchaseOrderList /></ProtectedRoute>} />
+      <Route path="/purchase/orders/:id" element={<ProtectedRoute adminOnly><PurchaseOrderDetail /></ProtectedRoute>} />
+      <Route path="/purchase/bills" element={<ProtectedRoute adminOnly><VendorBillList /></ProtectedRoute>} />
+      <Route path="/purchase/bills/:id" element={<ProtectedRoute adminOnly><VendorBillDetail /></ProtectedRoute>} />
+      <Route path="/purchase/payments" element={<ProtectedRoute adminOnly><BillPaymentList /></ProtectedRoute>} />
 
       {/* Sale Module - Admin Only */}
-      <Route path="/sale/orders" element={<ProtectedRoute adminOnly><Dashboard /></ProtectedRoute>} />
-      <Route path="/sale/invoices" element={<ProtectedRoute adminOnly><Dashboard /></ProtectedRoute>} />
-      <Route path="/sale/payments" element={<ProtectedRoute adminOnly><Dashboard /></ProtectedRoute>} />
+      <Route path="/sale/orders" element={<ProtectedRoute adminOnly><SalesOrderList /></ProtectedRoute>} />
+      <Route path="/sale/orders/:id" element={<ProtectedRoute adminOnly><SalesOrderDetail /></ProtectedRoute>} />
+      <Route path="/sale/invoices" element={<ProtectedRoute adminOnly><CustomerInvoiceList /></ProtectedRoute>} />
+      <Route path="/sale/invoices/:id" element={<ProtectedRoute adminOnly><CustomerInvoiceDetail /></ProtectedRoute>} />
+      <Route path="/sale/payments" element={<ProtectedRoute adminOnly><InvoicePaymentList /></ProtectedRoute>} />
 
       {/* Portal Routes */}
       <Route path="/portal/dashboard" element={<PortalRoute><PortalDashboard /></PortalRoute>} />
