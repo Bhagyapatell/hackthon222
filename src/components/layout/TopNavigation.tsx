@@ -18,6 +18,9 @@ import {
   LogOut,
   Settings,
   LayoutDashboard,
+  FileText,
+  Receipt,
+  CreditCard,
 } from 'lucide-react';
 
 interface NavItem {
@@ -26,13 +29,16 @@ interface NavItem {
   path?: string;
   children?: { label: string; path: string }[];
   adminOnly?: boolean;
+  portalOnly?: boolean;
 }
 
-const navItems: NavItem[] = [
+// Admin navigation items
+const adminNavItems: NavItem[] = [
   {
     label: 'Dashboard',
     icon: <LayoutDashboard className="h-4 w-4" />,
     path: '/dashboard',
+    adminOnly: true,
   },
   {
     label: 'Account',
@@ -49,6 +55,7 @@ const navItems: NavItem[] = [
   {
     label: 'Purchase',
     icon: <ShoppingCart className="h-4 w-4" />,
+    adminOnly: true,
     children: [
       { label: 'Purchase Orders', path: '/purchase/orders' },
       { label: 'Vendor Bills', path: '/purchase/bills' },
@@ -58,10 +65,39 @@ const navItems: NavItem[] = [
   {
     label: 'Sale',
     icon: <TrendingUp className="h-4 w-4" />,
+    adminOnly: true,
     children: [
       { label: 'Sales Orders', path: '/sale/orders' },
       { label: 'Customer Invoices', path: '/sale/invoices' },
       { label: 'Invoice Payments', path: '/sale/payments' },
+    ],
+  },
+];
+
+// Portal navigation items
+const portalNavItems: NavItem[] = [
+  {
+    label: 'Dashboard',
+    icon: <LayoutDashboard className="h-4 w-4" />,
+    path: '/portal/dashboard',
+    portalOnly: true,
+  },
+  {
+    label: 'Sales',
+    icon: <ShoppingCart className="h-4 w-4" />,
+    portalOnly: true,
+    children: [
+      { label: 'My Sales Orders', path: '/portal/sales-orders' },
+      { label: 'My Invoices', path: '/portal/invoices' },
+    ],
+  },
+  {
+    label: 'Purchases',
+    icon: <Receipt className="h-4 w-4" />,
+    portalOnly: true,
+    children: [
+      { label: 'My Purchase Orders', path: '/portal/purchase-orders' },
+      { label: 'My Vendor Bills', path: '/portal/vendor-bills' },
     ],
   },
 ];
@@ -78,16 +114,14 @@ export function TopNavigation() {
     return false;
   };
 
-  const filteredNavItems = navItems.filter((item) => {
-    if (item.adminOnly && !isAdmin) return false;
-    return true;
-  });
+  // Use different nav items based on role
+  const navItems = isAdmin ? adminNavItems : portalNavItems;
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-card shadow-sm">
       <div className="flex h-16 items-center justify-between px-4 md:px-6">
         {/* Logo */}
-        <Link to="/dashboard" className="flex items-center gap-2">
+        <Link to={isAdmin ? '/dashboard' : '/portal/dashboard'} className="flex items-center gap-2">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary">
             <span className="text-lg font-bold text-primary-foreground">SF</span>
           </div>
@@ -98,7 +132,7 @@ export function TopNavigation() {
 
         {/* Navigation */}
         <nav className="flex items-center gap-1">
-          {filteredNavItems.map((item) =>
+          {navItems.map((item) =>
             item.children ? (
               <DropdownMenu key={item.label}>
                 <DropdownMenuTrigger asChild>

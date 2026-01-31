@@ -606,6 +606,7 @@ export type Database = {
           email: string
           id: string
           name: string
+          portal_contact_id: string | null
           role: Database["public"]["Enums"]["app_role"]
           updated_at: string
         }
@@ -614,6 +615,7 @@ export type Database = {
           email: string
           id: string
           name: string
+          portal_contact_id?: string | null
           role?: Database["public"]["Enums"]["app_role"]
           updated_at?: string
         }
@@ -622,10 +624,19 @@ export type Database = {
           email?: string
           id?: string
           name?: string
+          portal_contact_id?: string | null
           role?: Database["public"]["Enums"]["app_role"]
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "profiles_portal_contact_id_fkey"
+            columns: ["portal_contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       purchase_order_lines: {
         Row: {
@@ -1032,6 +1043,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_portal_contact_id: { Args: { _user_id: string }; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
