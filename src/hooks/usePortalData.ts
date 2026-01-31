@@ -86,15 +86,16 @@ export interface PortalPayment {
   created_at: string;
 }
 
+// Portal Dashboard Stats - NO budget visibility per ERP requirements
 export interface PortalDashboardStats {
-  totalBudgetedIncome: number;
-  totalBudgetedExpense: number;
   pendingSalesOrders: number;
   pendingPurchaseOrders: number;
   unpaidInvoices: number;
   unpaidBills: number;
   unpaidInvoiceAmount: number;
   unpaidBillAmount: number;
+  totalSalesOrders: number;
+  totalPurchaseOrders: number;
 }
 
 // Hook for portal user's contact ID
@@ -135,82 +136,77 @@ export function usePortalContactId() {
   return { contactId, loading };
 }
 
-// Hook for portal dashboard stats
+// Hook for portal dashboard stats - NO budgets, only transactional data
 export function usePortalDashboard() {
   const [stats, setStats] = useState<PortalDashboardStats>({
-    totalBudgetedIncome: 0,
-    totalBudgetedExpense: 0,
     pendingSalesOrders: 0,
     pendingPurchaseOrders: 0,
     unpaidInvoices: 0,
     unpaidBills: 0,
     unpaidInvoiceAmount: 0,
     unpaidBillAmount: 0,
+    totalSalesOrders: 0,
+    totalPurchaseOrders: 0,
   });
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
   const fetchStats = useCallback(async () => {
     try {
-      // Fetch sales orders
+      // Fetch CONFIRMED sales orders only (portal sees only confirmed)
       const { data: salesOrders, error: soError } = await supabase
         .from('sales_orders')
         .select('id, status, is_archived')
-        .eq('is_archived', false);
+        .eq('is_archived', false)
+        .eq('status', 'confirmed');
 
       if (soError) throw soError;
 
-      // Fetch purchase orders
+      // Fetch CONFIRMED purchase orders only
       const { data: purchaseOrders, error: poError } = await supabase
         .from('purchase_orders')
         .select('id, status, is_archived')
-        .eq('is_archived', false);
+        .eq('is_archived', false)
+        .eq('status', 'confirmed');
 
       if (poError) throw poError;
 
-      // Fetch customer invoices
+      // Fetch POSTED customer invoices only (not draft, not cancelled)
+      // Posted = status in ('posted', 'partially_paid', 'paid')
       const { data: invoices, error: invError } = await supabase
         .from('customer_invoices')
         .select('id, status, total_amount, paid_amount, is_archived')
-        .eq('is_archived', false);
+        .eq('is_archived', false)
+        .in('status', ['posted', 'partially_paid', 'paid']);
 
       if (invError) throw invError;
 
-      // Fetch vendor bills
+      // Fetch POSTED vendor bills only
       const { data: bills, error: billError } = await supabase
         .from('vendor_bills')
         .select('id, status, total_amount, paid_amount, is_archived')
-        .eq('is_archived', false);
+        .eq('is_archived', false)
+        .in('status', ['posted', 'partially_paid', 'paid']);
 
       if (billError) throw billError;
 
-      // Fetch budgets for aggregate
-      const { data: budgets, error: budgetError } = await supabase
-        .from('budgets')
-        .select('type, budgeted_amount, state, is_archived')
-        .eq('state', 'confirmed')
-        .eq('is_archived', false);
-
-      if (budgetError) throw budgetError;
-
-      const pendingSO = salesOrders?.filter(o => o.status === 'draft' || o.status === 'confirmed').length || 0;
-      const pendingPO = purchaseOrders?.filter(o => o.status === 'draft' || o.status === 'confirmed').length || 0;
+      // Count confirmed orders
+      const confirmedSO = salesOrders?.length || 0;
+      const confirmedPO = purchaseOrders?.length || 0;
       
-      const unpaidInvs = invoices?.filter(i => i.status !== 'paid' && i.status !== 'cancelled') || [];
-      const unpaidBlls = bills?.filter(b => b.status !== 'paid' && b.status !== 'cancelled') || [];
-
-      const incomeBudgets = budgets?.filter(b => b.type === 'income') || [];
-      const expenseBudgets = budgets?.filter(b => b.type === 'expense') || [];
+      // Unpaid invoices = posted or partially_paid (not fully paid)
+      const unpaidInvs = invoices?.filter(i => i.status !== 'paid') || [];
+      const unpaidBlls = bills?.filter(b => b.status !== 'paid') || [];
 
       setStats({
-        totalBudgetedIncome: incomeBudgets.reduce((sum, b) => sum + Number(b.budgeted_amount), 0),
-        totalBudgetedExpense: expenseBudgets.reduce((sum, b) => sum + Number(b.budgeted_amount), 0),
-        pendingSalesOrders: pendingSO,
-        pendingPurchaseOrders: pendingPO,
+        pendingSalesOrders: confirmedSO,
+        pendingPurchaseOrders: confirmedPO,
         unpaidInvoices: unpaidInvs.length,
         unpaidBills: unpaidBlls.length,
         unpaidInvoiceAmount: unpaidInvs.reduce((sum, i) => sum + (Number(i.total_amount) - Number(i.paid_amount)), 0),
         unpaidBillAmount: unpaidBlls.reduce((sum, b) => sum + (Number(b.total_amount) - Number(b.paid_amount)), 0),
+        totalSalesOrders: salesOrders?.length || 0,
+        totalPurchaseOrders: purchaseOrders?.length || 0,
       });
     } catch (error) {
       console.error('Error fetching portal stats:', error);
@@ -231,7 +227,7 @@ export function usePortalDashboard() {
   return { stats, loading, refresh: fetchStats };
 }
 
-// Hook for portal sales orders
+// Hook for portal sales orders - ONLY CONFIRMED orders visible
 export function usePortalSalesOrders() {
   const [orders, setOrders] = useState<PortalSalesOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -240,10 +236,12 @@ export function usePortalSalesOrders() {
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     try {
+      // Portal users ONLY see CONFIRMED sales orders
       const { data, error } = await supabase
         .from('sales_orders')
         .select('*')
         .eq('is_archived', false)
+        .eq('status', 'confirmed')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -267,7 +265,7 @@ export function usePortalSalesOrders() {
   return { orders, loading, refresh: fetchOrders };
 }
 
-// Hook for portal invoices
+// Hook for portal invoices - ONLY POSTED invoices visible (not draft)
 export function usePortalInvoices() {
   const [invoices, setInvoices] = useState<PortalInvoice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -276,10 +274,13 @@ export function usePortalInvoices() {
   const fetchInvoices = useCallback(async () => {
     setLoading(true);
     try {
+      // Portal users ONLY see POSTED invoices (posted, partially_paid, paid)
+      // Draft and Cancelled are hidden
       const { data, error } = await supabase
         .from('customer_invoices')
         .select('*')
         .eq('is_archived', false)
+        .in('status', ['posted', 'partially_paid', 'paid'])
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -303,7 +304,7 @@ export function usePortalInvoices() {
   return { invoices, loading, refresh: fetchInvoices };
 }
 
-// Hook for portal purchase orders (for vendors)
+// Hook for portal purchase orders (for vendors) - ONLY CONFIRMED
 export function usePortalPurchaseOrders() {
   const [orders, setOrders] = useState<PortalPurchaseOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -312,10 +313,12 @@ export function usePortalPurchaseOrders() {
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     try {
+      // Portal users ONLY see CONFIRMED purchase orders
       const { data, error } = await supabase
         .from('purchase_orders')
         .select('*')
         .eq('is_archived', false)
+        .eq('status', 'confirmed')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -339,7 +342,7 @@ export function usePortalPurchaseOrders() {
   return { orders, loading, refresh: fetchOrders };
 }
 
-// Hook for portal vendor bills
+// Hook for portal vendor bills - ONLY POSTED bills visible
 export function usePortalVendorBills() {
   const [bills, setBills] = useState<PortalVendorBill[]>([]);
   const [loading, setLoading] = useState(true);
@@ -348,10 +351,12 @@ export function usePortalVendorBills() {
   const fetchBills = useCallback(async () => {
     setLoading(true);
     try {
+      // Portal users ONLY see POSTED vendor bills
       const { data, error } = await supabase
         .from('vendor_bills')
         .select('*')
         .eq('is_archived', false)
+        .in('status', ['posted', 'partially_paid', 'paid'])
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -387,48 +392,51 @@ export function usePortalInvoiceDetail(invoiceId: string) {
     if (!invoiceId) return;
     setLoading(true);
     try {
-      // Fetch invoice
+      // Fetch invoice - only if posted (not draft)
       const { data: invoiceData, error: invoiceError } = await supabase
         .from('customer_invoices')
         .select('*')
         .eq('id', invoiceId)
+        .in('status', ['posted', 'partially_paid', 'paid'])
         .maybeSingle();
 
       if (invoiceError) throw invoiceError;
       setInvoice(invoiceData);
 
-      // Fetch lines with products
-      const { data: linesData, error: linesError } = await supabase
-        .from('customer_invoice_lines')
-        .select(`
-          id,
-          product_id,
-          quantity,
-          unit_price,
-          subtotal,
-          products:product_id (name)
-        `)
-        .eq('customer_invoice_id', invoiceId);
+      if (invoiceData) {
+        // Fetch lines with products
+        const { data: linesData, error: linesError } = await supabase
+          .from('customer_invoice_lines')
+          .select(`
+            id,
+            product_id,
+            quantity,
+            unit_price,
+            subtotal,
+            products:product_id (name)
+          `)
+          .eq('customer_invoice_id', invoiceId);
 
-      if (linesError) throw linesError;
-      setLines(linesData?.map(line => ({
-        id: line.id,
-        product_id: line.product_id,
-        product_name: (line.products as any)?.name || 'Unknown Product',
-        quantity: Number(line.quantity),
-        unit_price: Number(line.unit_price),
-        subtotal: Number(line.subtotal),
-      })) || []);
+        if (linesError) throw linesError;
+        setLines(linesData?.map(line => ({
+          id: line.id,
+          product_id: line.product_id,
+          product_name: (line.products as any)?.name || 'Unknown Product',
+          quantity: Number(line.quantity),
+          unit_price: Number(line.unit_price),
+          subtotal: Number(line.subtotal),
+        })) || []);
 
-      // Fetch payments
-      const { data: paymentsData, error: paymentsError } = await supabase
-        .from('invoice_payments')
-        .select('*')
-        .eq('customer_invoice_id', invoiceId)
-        .order('payment_date', { ascending: false });
+        // Fetch payments
+        const { data: paymentsData, error: paymentsError } = await supabase
+          .from('invoice_payments')
+          .select('*')
+          .eq('customer_invoice_id', invoiceId)
+          .order('payment_date', { ascending: false });
 
-      if (paymentsError) throw paymentsError;
-      setPayments(paymentsData || []);
+        if (paymentsError) throw paymentsError;
+        setPayments(paymentsData || []);
+      }
     } catch (error) {
       console.error('Error fetching invoice detail:', error);
       toast({
@@ -460,48 +468,51 @@ export function usePortalBillDetail(billId: string) {
     if (!billId) return;
     setLoading(true);
     try {
-      // Fetch bill
+      // Fetch bill - only if posted
       const { data: billData, error: billError } = await supabase
         .from('vendor_bills')
         .select('*')
         .eq('id', billId)
+        .in('status', ['posted', 'partially_paid', 'paid'])
         .maybeSingle();
 
       if (billError) throw billError;
       setBill(billData);
 
-      // Fetch lines with products
-      const { data: linesData, error: linesError } = await supabase
-        .from('vendor_bill_lines')
-        .select(`
-          id,
-          product_id,
-          quantity,
-          unit_price,
-          subtotal,
-          products:product_id (name)
-        `)
-        .eq('vendor_bill_id', billId);
+      if (billData) {
+        // Fetch lines with products
+        const { data: linesData, error: linesError } = await supabase
+          .from('vendor_bill_lines')
+          .select(`
+            id,
+            product_id,
+            quantity,
+            unit_price,
+            subtotal,
+            products:product_id (name)
+          `)
+          .eq('vendor_bill_id', billId);
 
-      if (linesError) throw linesError;
-      setLines(linesData?.map(line => ({
-        id: line.id,
-        product_id: line.product_id,
-        product_name: (line.products as any)?.name || 'Unknown Product',
-        quantity: Number(line.quantity),
-        unit_price: Number(line.unit_price),
-        subtotal: Number(line.subtotal),
-      })) || []);
+        if (linesError) throw linesError;
+        setLines(linesData?.map(line => ({
+          id: line.id,
+          product_id: line.product_id,
+          product_name: (line.products as any)?.name || 'Unknown Product',
+          quantity: Number(line.quantity),
+          unit_price: Number(line.unit_price),
+          subtotal: Number(line.subtotal),
+        })) || []);
 
-      // Fetch payments
-      const { data: paymentsData, error: paymentsError } = await supabase
-        .from('bill_payments')
-        .select('*')
-        .eq('vendor_bill_id', billId)
-        .order('payment_date', { ascending: false });
+        // Fetch payments
+        const { data: paymentsData, error: paymentsError } = await supabase
+          .from('bill_payments')
+          .select('*')
+          .eq('vendor_bill_id', billId)
+          .order('payment_date', { ascending: false });
 
-      if (paymentsError) throw paymentsError;
-      setPayments(paymentsData || []);
+        if (paymentsError) throw paymentsError;
+        setPayments(paymentsData || []);
+      }
     } catch (error) {
       console.error('Error fetching bill detail:', error);
       toast({
@@ -542,4 +553,18 @@ export async function generatePaymentNumber(prefix: 'PAY' | 'BPAY'): Promise<str
   }
   
   return `${prefix}-${year}${month}-${count.toString().padStart(4, '0')}`;
+}
+
+// Compute invoice status dynamically based on amounts
+export function computeInvoiceStatus(totalAmount: number, paidAmount: number): 'posted' | 'partially_paid' | 'paid' {
+  if (paidAmount >= totalAmount) return 'paid';
+  if (paidAmount > 0) return 'partially_paid';
+  return 'posted';
+}
+
+// Compute bill status dynamically based on amounts
+export function computeBillStatus(totalAmount: number, paidAmount: number): 'posted' | 'partially_paid' | 'paid' {
+  if (paidAmount >= totalAmount) return 'paid';
+  if (paidAmount > 0) return 'partially_paid';
+  return 'posted';
 }
