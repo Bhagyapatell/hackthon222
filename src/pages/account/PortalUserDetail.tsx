@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
-import { PageHeader } from '@/components/common/PageHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Skeleton } from '@/components/ui/skeleton';
+import { StatusBadge } from '@/components/common/StatusBadge';
 import {
   Table,
   TableBody,
@@ -27,9 +27,11 @@ import {
   CreditCard,
   Eye,
   ExternalLink,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 
-interface PortalUserDetail {
+interface PortalUserProfile {
   id: string;
   name: string;
   email: string;
@@ -50,7 +52,7 @@ interface SalesOrder {
   id: string;
   order_number: string;
   order_date: string;
-  status: string;
+  status: 'draft' | 'confirmed' | 'cancelled';
   total_amount: number;
 }
 
@@ -59,7 +61,7 @@ interface CustomerInvoice {
   invoice_number: string;
   invoice_date: string;
   due_date: string;
-  status: string;
+  status: 'draft' | 'posted' | 'paid' | 'partially_paid' | 'cancelled';
   total_amount: number;
   paid_amount: number;
 }
@@ -68,7 +70,7 @@ interface PurchaseOrder {
   id: string;
   order_number: string;
   order_date: string;
-  status: string;
+  status: 'draft' | 'confirmed' | 'cancelled';
   total_amount: number;
 }
 
@@ -77,7 +79,7 @@ interface VendorBill {
   bill_number: string;
   bill_date: string;
   due_date: string;
-  status: string;
+  status: 'draft' | 'posted' | 'paid' | 'partially_paid' | 'cancelled';
   total_amount: number;
   paid_amount: number;
 }
@@ -87,13 +89,14 @@ export default function PortalUserDetail() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const [user, setUser] = useState<PortalUserDetail | null>(null);
+  const [user, setUser] = useState<PortalUserProfile | null>(null);
   const [contact, setContact] = useState<Contact | null>(null);
   const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
   const [invoices, setInvoices] = useState<CustomerInvoice[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [bills, setBills] = useState<VendorBill[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -101,22 +104,6 @@ export default function PortalUserDetail() {
       currency: 'INR',
       maximumFractionDigits: 0,
     }).format(amount);
-  };
-
-  const getStatusBadge = (status: string) => {
-    const variants: Record<string, string> = {
-      draft: 'bg-muted text-muted-foreground',
-      confirmed: 'bg-chart-3/10 text-chart-3',
-      posted: 'bg-chart-1/10 text-chart-1',
-      paid: 'bg-chart-3/10 text-chart-3',
-      partially_paid: 'bg-chart-4/10 text-chart-4',
-      cancelled: 'bg-destructive/10 text-destructive',
-    };
-    return (
-      <Badge className={variants[status] || 'bg-muted text-muted-foreground'}>
-        {status.replace('_', ' ')}
-      </Badge>
-    );
   };
 
   useEffect(() => {
@@ -263,7 +250,9 @@ export default function PortalUserDetail() {
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Role</span>
-              <Badge>{user.role}</Badge>
+              <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${user.role === 'admin' ? 'bg-chart-1/20 text-chart-1' : 'bg-primary/10 text-primary'}`}>
+                {user.role}
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Created</span>
@@ -410,7 +399,7 @@ export default function PortalUserDetail() {
                       <TableRow key={order.id}>
                         <TableCell className="font-medium">{order.order_number}</TableCell>
                         <TableCell>{format(new Date(order.order_date), 'dd MMM yyyy')}</TableCell>
-                        <TableCell>{getStatusBadge(order.status)}</TableCell>
+                        <TableCell><StatusBadge status={order.status} /></TableCell>
                         <TableCell className="text-right">{formatCurrency(order.total_amount)}</TableCell>
                         <TableCell>
                           <Button
@@ -458,7 +447,7 @@ export default function PortalUserDetail() {
                         <TableCell className="font-medium">{invoice.invoice_number}</TableCell>
                         <TableCell>{format(new Date(invoice.invoice_date), 'dd MMM yyyy')}</TableCell>
                         <TableCell>{format(new Date(invoice.due_date), 'dd MMM yyyy')}</TableCell>
-                        <TableCell>{getStatusBadge(invoice.status)}</TableCell>
+                        <TableCell><StatusBadge status={invoice.status} /></TableCell>
                         <TableCell className="text-right">{formatCurrency(invoice.total_amount)}</TableCell>
                         <TableCell className="text-right">
                           {formatCurrency(invoice.total_amount - invoice.paid_amount)}
@@ -506,7 +495,7 @@ export default function PortalUserDetail() {
                       <TableRow key={order.id}>
                         <TableCell className="font-medium">{order.order_number}</TableCell>
                         <TableCell>{format(new Date(order.order_date), 'dd MMM yyyy')}</TableCell>
-                        <TableCell>{getStatusBadge(order.status)}</TableCell>
+                        <TableCell><StatusBadge status={order.status} /></TableCell>
                         <TableCell className="text-right">{formatCurrency(order.total_amount)}</TableCell>
                         <TableCell>
                           <Button
@@ -554,7 +543,7 @@ export default function PortalUserDetail() {
                         <TableCell className="font-medium">{bill.bill_number}</TableCell>
                         <TableCell>{format(new Date(bill.bill_date), 'dd MMM yyyy')}</TableCell>
                         <TableCell>{format(new Date(bill.due_date), 'dd MMM yyyy')}</TableCell>
-                        <TableCell>{getStatusBadge(bill.status)}</TableCell>
+                        <TableCell><StatusBadge status={bill.status} /></TableCell>
                         <TableCell className="text-right">{formatCurrency(bill.total_amount)}</TableCell>
                         <TableCell className="text-right">
                           {formatCurrency(bill.total_amount - bill.paid_amount)}
