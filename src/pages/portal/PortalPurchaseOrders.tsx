@@ -19,18 +19,7 @@ export default function PortalPurchaseOrders() {
     }).format(amount);
   };
 
-  const getStatusVariant = (status: string) => {
-    switch (status) {
-      case 'confirmed':
-        return 'default';
-      case 'draft':
-        return 'secondary';
-      case 'cancelled':
-        return 'destructive';
-      default:
-        return 'outline';
-    }
-  };
+  // Portal only shows confirmed purchase orders
 
   if (loading) {
     return (
@@ -78,8 +67,8 @@ export default function PortalPurchaseOrders() {
                     <div className="space-y-1">
                       <div className="flex items-center gap-3">
                         <span className="font-semibold text-lg">{order.order_number}</span>
-                        <Badge variant={getStatusVariant(order.status)}>
-                          {order.status}
+                        <Badge variant="default">
+                          Confirmed
                         </Badge>
                       </div>
                       <div className="flex items-center gap-4 text-sm text-muted-foreground">

@@ -19,8 +19,7 @@ export default function PortalSalesOrders() {
     }).format(amount);
   };
 
-  // Portal only shows confirmed orders, so status is always 'confirmed'
-  const getStatusVariant = () => 'default';
+  // Portal only shows confirmed orders
 
   if (loading) {
     return (
@@ -65,7 +64,7 @@ export default function PortalSalesOrders() {
                     <div className="space-y-1">
                       <div className="flex items-center gap-3">
                         <span className="font-semibold text-lg">{order.order_number}</span>
-                        <Badge variant={getStatusVariant()}>
+                        <Badge variant="default">
                           Confirmed
                         </Badge>
                       </div>
