@@ -5,16 +5,15 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/AuthContext';
-import { usePortalDashboard, usePortalSalesOrders, usePortalInvoices } from '@/hooks/usePortalData';
+import { usePortalDashboard, usePortalSalesOrders, usePortalInvoices, usePortalPurchaseOrders, usePortalVendorBills } from '@/hooks/usePortalData';
 import {
-  TrendingUp,
-  TrendingDown,
   ShoppingCart,
   DollarSign,
   ArrowRight,
   FileText,
   Receipt,
   CreditCard,
+  Package,
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -24,6 +23,8 @@ export default function PortalDashboard() {
   const { stats, loading: statsLoading } = usePortalDashboard();
   const { orders: salesOrders, loading: ordersLoading } = usePortalSalesOrders();
   const { invoices, loading: invoicesLoading } = usePortalInvoices();
+  const { orders: purchaseOrders, loading: poLoading } = usePortalPurchaseOrders();
+  const { bills: vendorBills, loading: billsLoading } = usePortalVendorBills();
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -39,8 +40,9 @@ export default function PortalDashboard() {
       case 'confirmed':
         return 'default';
       case 'partially_paid':
-      case 'draft':
         return 'secondary';
+      case 'posted':
+        return 'outline';
       case 'cancelled':
         return 'destructive';
       default:
@@ -48,7 +50,18 @@ export default function PortalDashboard() {
     }
   };
 
-  const loading = statsLoading || ordersLoading || invoicesLoading;
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'partially_paid':
+        return 'Partial';
+      case 'posted':
+        return 'Unpaid';
+      default:
+        return status;
+    }
+  };
+
+  const loading = statsLoading || ordersLoading || invoicesLoading || poLoading || billsLoading;
 
   return (
     <MainLayout>
@@ -59,11 +72,11 @@ export default function PortalDashboard() {
             Welcome, {profile?.name || user?.email?.split('@')[0]}!
           </h1>
           <p className="text-muted-foreground">
-            {format(new Date(), 'EEEE, MMMM d, yyyy')} • Portal Dashboard
+            {format(new Date(), 'EEEE, MMMM d, yyyy')} • My Portal
           </p>
         </div>
 
-        {/* Quick Stats */}
+        {/* Quick Stats - NO BUDGET INFO per ERP requirements */}
         {loading ? (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             {[1, 2, 3, 4].map((i) => (
@@ -72,32 +85,7 @@ export default function PortalDashboard() {
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <Card className="border-l-4 border-l-chart-3">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Budget (Income)
-                </CardTitle>
-                <TrendingUp className="h-4 w-4 text-chart-3" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(stats.totalBudgetedIncome)}</div>
-                <p className="text-xs text-muted-foreground">Total budgeted income</p>
-              </CardContent>
-            </Card>
-
-            <Card className="border-l-4 border-l-chart-2">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Budget (Expense)
-                </CardTitle>
-                <TrendingDown className="h-4 w-4 text-chart-2" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(stats.totalBudgetedExpense)}</div>
-                <p className="text-xs text-muted-foreground">Total budgeted expense</p>
-              </CardContent>
-            </Card>
-
+            {/* Pending Orders */}
             <Card 
               className="border-l-4 border-l-primary cursor-pointer hover:shadow-md transition-shadow"
               onClick={() => navigate('/portal/sales-orders')}
@@ -106,7 +94,7 @@ export default function PortalDashboard() {
                 <CardTitle className="text-sm font-medium text-muted-foreground">
                   Pending Orders
                 </CardTitle>
-                <ShoppingCart className="h-4 w-4 text-primary" />
+                <Package className="h-4 w-4 text-primary" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{stats.pendingSalesOrders + stats.pendingPurchaseOrders}</div>
@@ -116,6 +104,7 @@ export default function PortalDashboard() {
               </CardContent>
             </Card>
 
+            {/* Pending Payments */}
             <Card 
               className="border-l-4 border-l-destructive cursor-pointer hover:shadow-md transition-shadow"
               onClick={() => navigate('/portal/invoices')}
@@ -133,6 +122,40 @@ export default function PortalDashboard() {
                 </p>
               </CardContent>
             </Card>
+
+            {/* My Sales Orders */}
+            <Card 
+              className="border-l-4 border-l-chart-3 cursor-pointer hover:shadow-md transition-shadow"
+              onClick={() => navigate('/portal/sales-orders')}
+            >
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  My Sales Orders
+                </CardTitle>
+                <ShoppingCart className="h-4 w-4 text-chart-3" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{stats.totalSalesOrders}</div>
+                <p className="text-xs text-muted-foreground">Confirmed orders</p>
+              </CardContent>
+            </Card>
+
+            {/* My Invoices */}
+            <Card 
+              className="border-l-4 border-l-chart-4 cursor-pointer hover:shadow-md transition-shadow"
+              onClick={() => navigate('/portal/invoices')}
+            >
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  My Invoices
+                </CardTitle>
+                <FileText className="h-4 w-4 text-chart-4" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{invoices.length}</div>
+                <p className="text-xs text-muted-foreground">{stats.unpaidInvoices} unpaid</p>
+              </CardContent>
+            </Card>
           </div>
         )}
 
@@ -146,7 +169,7 @@ export default function PortalDashboard() {
             <ShoppingCart className="h-6 w-6" />
             <span>My Sales Orders</span>
             <span className="text-xs text-muted-foreground">
-              {salesOrders.length} orders
+              {salesOrders.length} confirmed
             </span>
           </Button>
 
@@ -158,7 +181,7 @@ export default function PortalDashboard() {
             <FileText className="h-6 w-6" />
             <span>My Invoices</span>
             <span className="text-xs text-muted-foreground">
-              {stats.unpaidInvoices} unpaid
+              {stats.unpaidInvoices} pending payment
             </span>
           </Button>
 
@@ -170,7 +193,7 @@ export default function PortalDashboard() {
             <Receipt className="h-6 w-6" />
             <span>My Purchase Orders</span>
             <span className="text-xs text-muted-foreground">
-              As vendor
+              {purchaseOrders.length} confirmed (as vendor)
             </span>
           </Button>
 
@@ -182,7 +205,7 @@ export default function PortalDashboard() {
             <CreditCard className="h-6 w-6" />
             <span>My Vendor Bills</span>
             <span className="text-xs text-muted-foreground">
-              {stats.unpaidBills} unpaid
+              {stats.unpaidBills} pending payment
             </span>
           </Button>
         </div>
@@ -205,7 +228,7 @@ export default function PortalDashboard() {
                 </div>
               ) : salesOrders.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
-                  No sales orders yet
+                  No confirmed sales orders
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -223,8 +246,8 @@ export default function PortalDashboard() {
                       </div>
                       <div className="text-right">
                         <p className="font-medium">{formatCurrency(order.total_amount)}</p>
-                        <Badge variant={getStatusVariant(order.status)} className="mt-1">
-                          {order.status}
+                        <Badge variant="default" className="mt-1">
+                          Confirmed
                         </Badge>
                       </div>
                     </div>
@@ -270,10 +293,10 @@ export default function PortalDashboard() {
                         </div>
                         <div className="text-right">
                           <p className={`font-medium ${balance > 0 ? 'text-destructive' : 'text-chart-3'}`}>
-                            {formatCurrency(balance)} due
+                            {balance > 0 ? formatCurrency(balance) + ' due' : 'Paid'}
                           </p>
                           <Badge variant={getStatusVariant(invoice.status)} className="mt-1">
-                            {invoice.status.replace('_', ' ')}
+                            {getStatusLabel(invoice.status)}
                           </Badge>
                         </div>
                       </div>
